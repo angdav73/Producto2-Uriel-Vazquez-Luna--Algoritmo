@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MediBot – Robot recolector hospitalario</title>
+<style>
+  :root{
+    --bg:#f1f5f9; --card:#ffffff; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0;
+    --brand:#0f766e; --brand2:#115e59; --warn:#d97706; --bad:#dc2626;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);line-height:1.4}
+  header{background:linear-gradient(120deg,#0f766e,#0e7490);color:#fff;padding:16px 20px}
+  header h1{margin:0;font-size:1.35rem}
+  header p{margin:4px 0 0;font-size:.9rem;opacity:.92;max-width:980px}
+  main{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;padding:16px;max-width:1380px;margin:0 auto}
+  @media(max-width:980px){main{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+  .card h2{margin:0 0 10px;font-size:1rem;color:var(--brand2)}
+  .toolbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px}
+  .toolbar .lbl{font-size:.82rem;color:var(--muted);margin-right:4px}
+  button,select{font:inherit}
+  button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 11px;cursor:pointer;color:var(--ink)}
+  button:hover:not(:disabled){background:#f8fafc;border-color:#cbd5e1}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+  button.primary:hover:not(:disabled){background:var(--brand2)}
+  button.danger{color:var(--bad)}
+  .tool.active{background:#ccfbf1;border-color:var(--brand);font-weight:600}
+  select{padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:#fff;width:100%}
+  canvas{width:100%;height:auto;display:block;border-radius:8px;border:1px solid var(--line);background:#fff;touch-action:none;cursor:crosshair}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px;font-size:.8rem;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .chip{width:14px;height:14px;border-radius:4px;display:inline-block;border:1px solid rgba(0,0,0,.12)}
+  .info{background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;padding:9px 11px;font-size:.86rem;margin-top:8px}
+  .row{display:flex;gap:8px;align-items:center;margin:6px 0}
+  .row label{font-size:.82rem;color:var(--muted);min-width:64px}
+  .mission{display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;font-size:.86rem}
+  .mission.active{border-color:var(--brand);background:#f0fdfa}
+  .mission .t{flex:1}
+  .mission .t small{display:block;color:var(--muted)}
+  .badge{font-size:.72rem;padding:2px 7px;border-radius:999px;background:#e2e8f0;color:#334155;white-space:nowrap}
+  .badge.ok{background:#dcfce7;color:#166534}
+  .badge.go{background:#cffafe;color:#155e75}
+  .badge.err{background:#fee2e2;color:#991b1b}
+  .mission button{padding:2px 7px}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .stat{background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+  .stat b{display:block;font-size:1.15rem}
+  .stat span{font-size:.75rem;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-size:.8rem}
+  th,td{padding:5px 4px;border-bottom:1px solid var(--line);text-align:center}
+  th:first-child,td:first-child{text-align:left}
+  td.best{font-weight:700;color:var(--brand2);background:#f0fdfa}
+  #log{height:150px;overflow-y:auto;font-size:.8rem;background:#0f172a;color:#cbd5e1;border-radius:8px;padding:8px 10px;font-family:ui-monospace,Consolas,monospace}
+  #log div{margin-bottom:2px}
+  #log .ev{color:#5eead4}
+  #log .er{color:#fca5a5}
+  .hint{font-size:.78rem;color:var(--muted);margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🤖 MediBot — Robot recolector para hospitales y clínicas</h1>
+  <p>Transporta suministros, documentos, ropa hospitalaria y materiales entre departamentos. Para encontrar su ruta usa <b>búsqueda ciega</b>: algoritmos que no conocen la ubicación del destino de antemano ni usan heurísticas, solo exploran el mapa de forma sistemática.</p>
+</header>
+
+<main>
+  <!-- ===== Columna izquierda: mapa ===== -->
+  <section>
+    <div class="card">
+      <div class="toolbar">
+        <span class="lbl">Editar mapa:</span>
+        <button class="tool active" data-tool="wall">🧱 Pared</button>
+        <button class="tool" data-tool="busy">🚧 Pasillo concurrido (costo 5)</button>
+        <button class="tool" data-tool="erase">🧽 Borrar</button>
+        <button class="tool" data-tool="base">⚡ Mover base</button>
+        <button id="btnMap" style="margin-left:auto">Restablecer mapa</button>
+      </div>
+      <canvas id="cv"></canvas>
+      <div class="legend" id="legend"></div>
+      <div class="hint">Haz clic o arrastra sobre el mapa para dibujar obstáculos (camillas, cierres por limpieza) o pasillos concurridos y observa cómo cambia la ruta.</div>
+    </div>
+  </section>
+
+  <!-- ===== Columna derecha: controles ===== -->
+  <aside>
+    <div class="card">
+      <h2>1. Algoritmo de búsqueda ciega</h2>
+      <select id="algo">
+        <option value="bfs">Búsqueda en amplitud (BFS)</option>
+        <option value="dfs">Búsqueda en profundidad (DFS)</option>
+        <option value="ucs">Costo uniforme (UCS)</option>
+      </select>
+      <div class="info" id="algoInfo"></div>
+      <div class="row" style="margin-top:10px">
+        <label for="speed">Velocidad</label>
+        <input type="range" id="speed" min="1" max="10" value="7" style="flex:1">
+      </div>
+      <label style="font-size:.84rem"><input type="checkbox" id="animSearch" checked> Animar la exploración del algoritmo</label>
+    </div>
+
+    <div class="card">
+      <h2>2. Misiones de entrega</h2>
+      <div id="mList"></div>
+      <div class="row"><label>Objeto</label><select id="mItem"></select></div>
+      <div class="row"><label>Recoger en</label><select id="mFrom"></select></div>
+      <div class="row"><label>Entregar en</label><select id="mTo"></select></div>
+      <div class="toolbar" style="margin:8px 0 0">
+        <button id="btnAdd">➕ Agregar misión</button>
+        <button id="btnCmp">📊 Comparar algoritmos</button>
+      </div>
+      <div class="toolbar" style="margin:10px 0 0">
+        <button id="btnRun" class="primary">▶ Iniciar recorrido</button>
+        <button id="btnStop">⏸ Detener</button>
+        <button id="btnReset">↺ Reiniciar</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3. Estadísticas</h2>
+      <div class="stats">
+        <div class="stat"><span>Nodos expandidos (última búsqueda)</span><b id="sExp">0</b></div>
+        <div class="stat"><span>Tamaño de la frontera</span><b id="sFront">0</b></div>
+        <div class="stat"><span>Longitud de la ruta (pasos)</span><b id="sLen">0</b></div>
+        <div class="stat"><span>Costo de la ruta</span><b id="sCost">0</b></div>
+        <div class="stat"><span>Total nodos expandidos</span><b id="tExp">0</b></div>
+        <div class="stat"><span>Total pasos del robot</span><b id="tSteps">0</b></div>
+      </div>
+    </div>
+
+    <div class="card" id="cmpCard" style="display:none">
+      <h2>Comparación de algoritmos</h2>
+      <div id="cmpOut"></div>
+    </div>
+
+    <div class="card">
+      <h2>Bitácora</h2>
+      <div id="log"></div>
+    </div>
+  </aside>
+</main>
+
+<script>
+/* ===================== Datos del hospital ===================== */
+const COLS = 20, ROWS = 12, CS = 36, N = COLS * ROWS;
+
+// # pared · . piso libre · ~ pasillo concurrido · R base del robot · letras = departamentos
+const MAP = [
+  "####################",
+  "#A...#.F...#.U...Q.#",
+  "#....#.....#.......#",
+  "#....#.....#.......#",
+  "#R....~~~~~~~......#",
+  "####.####.####.#####",
+  "#..................#",
+  "####.####.####.#####",
+  "#L...#.B....#...D..#",
+  "#....#......#......#",
+  "#....#......#......#",
+  "####################"
+];
+
+const DEPTS = {
+  A: { name: "Almacén",         color: "#ea580c" },
+  F: { name: "Farmacia",        color: "#0d9488" },
+  U: { name: "Urgencias",       color: "#dc2626" },
+  Q: { name: "Quirófano",       color: "#7c3aed" },
+  L: { name: "Lavandería",      color: "#2563eb" },
+  B: { name: "Laboratorio",     color: "#16a34a" },
+  D: { name: "Archivo clínico", color: "#78716c" }
+};
+
+const ITEMS = {
+  sum:  { label: "Suministros",        emoji: "📦" },
+  doc:  { label: "Documentos",         emoji: "📄" },
+  ropa: { label: "Ropa hospitalaria",  emoji: "👕" },
+  mat:  { label: "Materiales",         emoji: "🧪" }
+};
+
+const ALGOS = {
+  bfs: { name: "Amplitud (BFS)",
+         info: "<b>Amplitud (BFS):</b> explora por niveles usando una <b>cola (FIFO)</b>. Garantiza la ruta con menos pasos, pero ignora que los pasillos concurridos cuestan más." },
+  dfs: { name: "Profundidad (DFS)",
+         info: "<b>Profundidad (DFS):</b> usa una <b>pila (LIFO)</b> y se interna lo más posible antes de retroceder. Gasta poca memoria, pero la ruta que encuentra puede ser larga y llena de rodeos." },
+  ucs: { name: "Costo uniforme (UCS)",
+         info: "<b>Costo uniforme (UCS):</b> expande siempre el nodo con menor costo acumulado g(n) usando una <b>cola de prioridad</b>. Encuentra la ruta de menor costo y evita los pasillos concurridos si conviene." }
+};
+
+/* ===================== Estado ===================== */
+const $ = id => document.getElementById(id);
+const cv = $("cv"), ctx = cv.getContext("2d");
+cv.width = COLS * CS; cv.height = ROWS * CS;
+
+let grid = [], deptPos = {}, base = 0, robot = 0, rx = 0, ry = 0;
+let carrying = null, vis = new Set(), front = new Set(), pathCells = [], curCell = -1, target = -1;
+let tool = "wall", running = false, cancelled = false;
+let missions = [], totals = { exp: 0, steps: 0 };
+
+/* ===================== Mapa ===================== */
+function loadMap() {
+  grid = new Array(N).fill(0); deptPos = {};
+  MAP.forEach((row, r) => [...row].forEach((ch, c) => {
+    const i = r * COLS + c;
+    if (ch === "#") grid[i] = 1;
+    else if (ch === "~") grid[i] = 2;
+    else if (ch === "R") base = i;
+    else if (DEPTS[ch]) deptPos[ch] = i;
+  }));
+  robot = base; setXY(base);
+}
+function setXY(i) { rx = i % COLS; ry = Math.floor(i / COLS); }
+const cost = i => grid[i] === 2 ? 5 : 1;
+
+function neighbors(i) {
+  const r = Math.floor(i / COLS), c = i % COLS, out = [];
+  if (r > 0        && grid[i - COLS] !== 1) out.push(i - COLS);
+  if (c < COLS - 1 && grid[i + 1]    !== 1) out.push(i + 1);
+  if (r < ROWS - 1 && grid[i + COLS] !== 1) out.push(i + COLS);
+  if (c > 0        && grid[i - 1]    !== 1) out.push(i - 1);
+  return out;
+}
+
+/* ===================== Algoritmos de búsqueda ciega ===================== */
+function search(start, goal, algo) {
+  const steps = [], parent = new Int32Array(N).fill(-1);
+  const closed = new Uint8Array(N), seen = new Uint8Array(N);
+  let open = [{ i: start, p: -1, g: 0 }], maxF = 1, expanded = 0, found = false, total = 0;
+  seen[start] = 1;
+
+  while (open.length) {
+    maxF = Math.max(maxF, open.length);
+    let e;
+    if (algo === "bfs") e = open.shift();            // cola FIFO
+    else if (algo === "dfs") e = open.pop();         // pila LIFO
+    else {                                           // cola de prioridad por g(n)
+      let b = 0;
+      for (let k = 1; k < open.length; k++) if (open[k].g < open[b].g) b = k;
+      e = open.splice(b, 1)[0];
+    }
+    if (closed[e.i]) continue;
+    closed[e.i] = 1; parent[e.i] = e.p; expanded++;
+    const added = [];
+
+    if (e.i === goal) {                              // prueba de meta al expandir
+      steps.push({ cur: e.i, added, size: open.length });
+      found = true; total = e.g; break;
+    }
+    let ns = neighbors(e.i);
+    if (algo === "dfs") ns = ns.reverse();           // para explorar arriba→derecha→abajo→izquierda
+    for (const n of ns) {
+      if (closed[n]) continue;
+      if (algo === "bfs") { if (seen[n]) continue; seen[n] = 1; }
+      open.push({ i: n, p: e.i, g: e.g + cost(n) });
+      added.push(n);
+    }
+    steps.push({ cur: e.i, added, size: open.length });
+  }
+
+  const path = [];
+  if (found) for (let k = goal; k !== -1; k = parent[k]) path.unshift(k);
+  return { found, path, steps, expanded, maxF, cost: total, len: Math.max(0, path.length - 1) };
+}
+
+/* ===================== Dibujo ===================== */
+function draw() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  for (let i = 0; i < N; i++) {
+    const x = (i % COLS) * CS, y = Math.floor(i / COLS) * CS, t = grid[i];
+    ctx.fillStyle = t === 1 ? "#334155" : t === 2 ? "#fde68a" : "#f8fafc";
+    ctx.fillRect(x, y, CS, CS);
+    if (t === 2) {
+      ctx.save(); ctx.beginPath(); ctx.rect(x, y, CS, CS); ctx.clip();
+      ctx.strokeStyle = "rgba(217,119,6,.55)"; ctx.lineWidth = 2;
+      for (let k = -CS; k < CS; k += 9) { ctx.beginPath(); ctx.moveTo(x + k, y + CS); ctx.lineTo(x + k + CS, y); ctx.stroke(); }
+      ctx.restore();
+    }
+    if (vis.has(i))   { ctx.fillStyle = "rgba(59,130,246,.30)"; ctx.fillRect(x, y, CS, CS); }
+    if (front.has(i)) { ctx.fillStyle = "rgba(34,197,94,.55)";  ctx.fillRect(x, y, CS, CS); }
+    ctx.strokeStyle = "rgba(15,23,42,.08)"; ctx.lineWidth = 1; ctx.strokeRect(x + .5, y + .5, CS - 1, CS - 1);
+  }
+  // base de carga
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.font = "18px system-ui,sans-serif"; ctx.fillStyle = "#0f172a";
+  ctx.fillText("⚡", (base % COLS) * CS + CS / 2, Math.floor(base / COLS) * CS + CS / 2 + 1);
+  // departamentos
+  for (const k in deptPos) {
+    const i = deptPos[k], x = (i % COLS) * CS, y = Math.floor(i / COLS) * CS;
+    ctx.fillStyle = DEPTS[k].color;
+    ctx.beginPath(); ctx.roundRect(x + 3, y + 3, CS - 6, CS - 6, 7); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.font = "bold 18px system-ui,sans-serif";
+    ctx.fillText(k, x + CS / 2, y + CS / 2 + 1);
+  }
+  // ruta
+  if (pathCells.length > 1) {
+    ctx.strokeStyle = "rgba(124,58,237,.85)"; ctx.lineWidth = 5; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.beginPath();
+    pathCells.forEach((i, k) => {
+      const x = (i % COLS) * CS + CS / 2, y = Math.floor(i / COLS) * CS + CS / 2;
+      k ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
+    ctx.stroke();
+  }
+  // nodo actual y destino
+  if (curCell >= 0) {
+    ctx.strokeStyle = "#1d4ed8"; ctx.lineWidth = 3;
+    ctx.strokeRect((curCell % COLS) * CS + 2, Math.floor(curCell / COLS) * CS + 2, CS - 4, CS - 4);
+  }
+  if (target >= 0) {
+    ctx.strokeStyle = "#dc2626"; ctx.lineWidth = 3; ctx.setLineDash([5, 4]);
+    ctx.strokeRect((target % COLS) * CS + 1, Math.floor(target / COLS) * CS + 1, CS - 2, CS - 2);
+    ctx.setLineDash([]);
+  }
+  // robot
+  const px = rx * CS + CS / 2, py = ry * CS + CS / 2;
+  ctx.font = "26px system-ui,'Segoe UI Emoji',sans-serif"; ctx.fillStyle = "#000";
+  ctx.fillText("🤖", px, py + 1);
+  if (carrying) { ctx.font = "16px system-ui,'Segoe UI Emoji',sans-serif"; ctx.fillText(ITEMS[carrying].emoji, px + 13, py - 13); }
+}
+
+/* ===================== Utilidades ===================== */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const dly = () => 220 - $("speed").value * 20;   // 20–200 ms
+function log(msg, cls = "") {
+  const d = document.createElement("div"); if (cls) d.className = cls;
+  const t = new Date().toLocaleTimeString("es-MX", { hour12: false });
+  d.textContent = `[${t}] ${msg}`; $("log").appendChild(d); $("log").scrollTop = 1e9;
+}
+function showStats(res, live) {
+  $("sExp").textContent = res.expanded;
+  $("sFront").textContent = live ? res.size : res.maxF;
+  if (!live) { $("sLen").textContent = res.found ? res.len : "—"; $("sCost").textContent = res.found ? res.cost : "—"; }
+}
+function updateTotals() { $("tExp").textContent = totals.exp; $("tSteps").textContent = totals.steps; }
+
+/* ===================== Movimiento y animación ===================== */
+function tween(a, b, dur) {
+  return new Promise(res => {
+    const ax = a % COLS, ay = Math.floor(a / COLS), bx = b % COLS, by = Math.floor(b / COLS), t0 = performance.now();
+    (function f(t) {
+      const k = Math.min(1, (t - t0) / dur);
+      rx = ax + (bx - ax) * k; ry = ay + (by - ay) * k; draw();
+      if (k < 1 && !cancelled) requestAnimationFrame(f); else res();
+    })(t0);
+  });
+}
+
+async function animateSearch(res, start) {
+  vis = new Set(); front = new Set([start]); pathCells = [];
+  const anim = $("animSearch").checked;
+  let n = 0;
+  for (const s of res.steps) {
+    if (cancelled) return false;
+    front.delete(s.cur); vis.add(s.cur); s.added.forEach(a => front.add(a)); curCell = s.cur; n++;
+    if (anim) {
+      showStats({ expanded: n, size: s.size }, true); draw();
+      await sleep(Math.max(6, dly() / 3));
+    }
+  }
+  showStats(res, false);
+  curCell = -1; front.clear(); pathCells = res.path; draw();
+  await sleep(anim ? 350 : 80);
+  return !cancelled;
+}
+
+// Busca y recorre la ruta hasta el departamento destino.
+async function goTo(dest, label) {
+  const start = robot, goal = deptPos[dest];
+  target = goal; vis.clear(); front.clear(); pathCells = []; draw();
+  if (start === goal) { log(`Ya está en ${DEPTS[dest].name}.`); target = -1; return true; }
+  const algo = $("algo").value;
+  const res = search(start, goal, algo);
+  totals.exp += res.expanded; updateTotals();
+  if (!res.found) {
+    showStats(res, false);
+    log(`${label}: no existe ruta hacia ${DEPTS[dest].name} (¿bloqueada por paredes?).`, "er");
+    target = -1; draw(); return false;
+  }
+  log(`${ALGOS[algo].name} → ${DEPTS[dest].name}: ${res.expanded} nodos expandidos, ruta de ${res.len} pasos, costo ${res.cost}.`);
+  if (!(await animateSearch(res, start))) return false;
+  for (let k = 1; k < res.path.length; k++) {
+    if (cancelled) return false;
+    const a = res.path[k - 1], b = res.path[k];
+    await tween(a, b, dly() * 1.2 * (cost(b) === 5 ? 2.2 : 1));
+    robot = b; setXY(b); totals.steps++; updateTotals();
+  }
+  vis.clear(); pathCells = []; target = -1; draw();
+  return true;
+}
+
+/* ===================== Misiones ===================== */
+function renderMissions() {
+  const el = $("mList"); el.innerHTML = "";
+  if (!missions.length) el.innerHTML = '<div class="hint">No hay misiones. Agrega una abajo.</div>';
+  missions.forEach((m, idx) => {
+    const st = m.err ? ["Sin ruta", "err"] : m.stage === 2 ? ["Entregado ✓", "ok"] : m.stage === 1 ? ["En camino", "go"] : ["Pendiente", ""];
+    const d = document.createElement("div");
+    d.className = "mission" + (m.active ? " active" : "");
+    d.innerHTML = `<span style="font-size:1.3rem">${ITEMS[m.item].emoji}</span>
+      <div class="t">${ITEMS[m.item].label}<small>${DEPTS[m.from].name} → ${DEPTS[m.to].name}</small></div>
+      <span class="badge ${st[1]}">${st[0]}</span>
+      <button class="danger" title="Quitar" ${running ? "disabled" : ""}>✕</button>`;
+    d.querySelector("button").onclick = () => { missions.splice(idx, 1); renderMissions(); };
+    el.appendChild(d);
+  });
+}
+
+async function runMissions() {
+  if (running) return;
+  running = true; cancelled = false; setUI();
+  missions.forEach(m => m.err = false);
+  log("Recorrido iniciado.", "ev");
+  try {
+    for (const m of missions) {
+      if (m.stage === 2) continue;
+      m.active = true; renderMissions();
+      if (m.stage === 0) {
+        if (!(await goTo(m.from, "Recoger"))) { m.err = !cancelled; m.active = false; renderMissions(); if (!cancelled) {} ; return; }
+        carrying = m.item; m.stage = 1; renderMissions();
+        log(`Recogió ${ITEMS[m.item].label.toLowerCase()} en ${DEPTS[m.from].name}.`, "ev");
+      }
+      if (!(await goTo(m.to, "Entregar"))) { m.err = !cancelled; m.active = false; renderMissions(); return; }
+      carrying = null; m.stage = 2; m.active = false; renderMissions();
+      log(`Entregó ${ITEMS[m.item].label.toLowerCase()} en ${DEPTS[m.to].name}.`, "ev");
+    }
+    if (!cancelled && missions.length && missions.every(m => m.stage === 2)) {
+      log("Todas las entregas completadas. Regresando a la base…", "ev");
+      const b = search(robot, base, $("algo").value);
+      if (b.found && robot !== base) {
+        pathCells = b.path; draw();
+        for (let k = 1; k < b.path.length && !cancelled; k++) {
+          await tween(b.path[k - 1], b.path[k], dly() * 1.2 * (cost(b.path[k]) === 5 ? 2.2 : 1));
+          robot = b.path[k]; setXY(robot); totals.steps++; updateTotals();
+        }
+        pathCells = []; draw();
+      }
+      if (!cancelled) log("Robot en la base de carga. ✔", "ev");
+    }
+  } finally {
+    missions.forEach(m => m.active = false);
+    running = false; setUI(); renderMissions();
+    if (cancelled) log("Recorrido detenido.");
+  }
+}
+
+async function resetAll() {
+  cancelled = true; while (running) await sleep(20);
+  cancelled = false;
+  robot = base; setXY(base); carrying = null; vis.clear(); front.clear(); pathCells = []; curCell = -1; target = -1;
+  totals = { exp: 0, steps: 0 }; updateTotals();
+  ["sExp", "sFront", "sLen", "sCost"].forEach(i => $(i).textContent = "0");
+  missions.forEach(m => { m.stage = 0; m.err = false; m.active = false; });
+  renderMissions(); draw(); log("Misión reiniciada.");
+}
+
+function setUI() {
+  $("btnRun").disabled = running; $("btnStop").disabled = !running;
+  $("btnAdd").disabled = running; $("btnCmp").disabled = running; $("algo").disabled = running;
+  $("btnMap").disabled = running;
+}
+
+/* ===================== Comparación ===================== */
+function compare() {
+  const from = $("mFrom").value, to = $("mTo").value;
+  if (from === to) { log("Elige departamentos distintos para comparar.", "er"); return; }
+  const rows = Object.keys(ALGOS).map(a => ({ a, r: search(deptPos[from], deptPos[to], a) }));
+  const ok = rows.filter(x => x.r.found);
+  $("cmpCard").style.display = "block";
+  if (!ok.length) { $("cmpOut").innerHTML = "<div class='hint'>No existe ruta entre esos departamentos con el mapa actual.</div>"; return; }
+  const minLen = Math.min(...ok.map(x => x.r.len)), minCost = Math.min(...ok.map(x => x.r.cost)), minExp = Math.min(...ok.map(x => x.r.expanded));
+  let h = `<div class="hint" style="margin:0 0 6px">${DEPTS[from].name} → ${DEPTS[to].name}</div>
+    <table><tr><th>Algoritmo</th><th>Nodos</th><th>Frontera máx.</th><th>Pasos</th><th>Costo</th></tr>`;
+  rows.forEach(({ a, r }) => {
+    h += `<tr><td>${ALGOS[a].name}</td>
+      <td class="${r.found && r.expanded === minExp ? "best" : ""}">${r.expanded}</td>
+      <td>${r.maxF}</td>
+      <td class="${r.found && r.len === minLen ? "best" : ""}">${r.found ? r.len : "—"}</td>
+      <td class="${r.found && r.cost === minCost ? "best" : ""}">${r.found ? r.cost : "—"}</td></tr>`;
+  });
+  h += `</table><div class="hint">En verde, el mejor valor de cada columna. BFS minimiza los pasos, UCS minimiza el costo y DFS no garantiza ninguno de los dos.</div>`;
+  $("cmpOut").innerHTML = h;
+}
+
+/* ===================== Edición del mapa ===================== */
+let painting = false;
+function cellAt(e) {
+  const rect = cv.getBoundingClientRect();
+  const c = Math.floor((e.clientX - rect.left) * cv.width / rect.width / CS);
+  const r = Math.floor((e.clientY - rect.top) * cv.height / rect.height / CS);
+  return (c < 0 || r < 0 || c >= COLS || r >= ROWS) ? -1 : r * COLS + c;
+}
+function paint(e) {
+  if (running) return;
+  const i = cellAt(e); if (i < 0) return;
+  const isDept = Object.values(deptPos).includes(i);
+  if (tool === "base") {
+    if (grid[i] !== 1 && !isDept) { base = i; robot = i; setXY(i); carrying = null; }
+  } else {
+    if (i === base || i === robot || isDept) return;
+    grid[i] = tool === "wall" ? 1 : tool === "busy" ? 2 : 0;
+  }
+  vis.clear(); front.clear(); pathCells = []; draw();
+}
+cv.addEventListener("pointerdown", e => { painting = true; paint(e); });
+cv.addEventListener("pointermove", e => { if (painting) paint(e); });
+window.addEventListener("pointerup", () => painting = false);
+
+/* ===================== Inicio ===================== */
+function fillSelect(id, obj, fn) {
+  $(id).innerHTML = Object.keys(obj).map(k => `<option value="${k}">${fn(obj[k])}</option>`).join("");
+}
+fillSelect("mItem", ITEMS, v => `${v.emoji} ${v.label}`);
+fillSelect("mFrom", DEPTS, v => v.name);
+fillSelect("mTo", DEPTS, v => v.name);
+$("mFrom").value = "A"; $("mTo").value = "U";
+
+$("legend").innerHTML =
+  Object.keys(DEPTS).map(k => `<span><i class="chip" style="background:${DEPTS[k].color}"></i>${k} = ${DEPTS[k].name}</span>`).join("") +
+  `<span><i class="chip" style="background:#334155"></i>Pared</span>
+   <span><i class="chip" style="background:#fde68a"></i>Pasillo concurrido</span>
+   <span><i class="chip" style="background:rgba(34,197,94,.7)"></i>Frontera</span>
+   <span><i class="chip" style="background:rgba(59,130,246,.4)"></i>Explorado</span>
+   <span><i class="chip" style="background:#7c3aed"></i>Ruta</span>
+   <span>⚡ Base de carga</span>`;
+
+document.querySelectorAll(".tool").forEach(b => b.onclick = () => {
+  tool = b.dataset.tool;
+  document.querySelectorAll(".tool").forEach(x => x.classList.toggle("active", x === b));
+});
+$("algo").onchange = () => { $("algoInfo").innerHTML = ALGOS[$("algo").value].info; };
+$("algoInfo").innerHTML = ALGOS.bfs.info;
+
+$("btnAdd").onclick = () => {
+  const from = $("mFrom").value, to = $("mTo").value;
+  if (from === to) { log("El origen y el destino deben ser distintos.", "er"); return; }
+  missions.push({ item: $("mItem").value, from, to, stage: 0, err: false, active: false });
+  renderMissions();
+};
+$("btnRun").onclick = runMissions;
+$("btnStop").onclick = () => { cancelled = true; };
+$("btnReset").onclick = resetAll;
+$("btnCmp").onclick = compare;
+$("btnMap").onclick = async () => { await resetAll(); loadMap(); draw(); log("Mapa restablecido."); };
+
+loadMap();
+missions = [
+  { item: "sum",  from: "A", to: "U", stage: 0 },
+  { item: "doc",  from: "D", to: "Q", stage: 0 },
+  { item: "ropa", from: "L", to: "U", stage: 0 },
+  { item: "mat",  from: "F", to: "B", stage: 0 }
+];
+renderMissions(); setUI(); draw();
+log("MediBot listo. Elige un algoritmo y pulsa «Iniciar recorrido».");
+</script>
+</body>
+</html>
